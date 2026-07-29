@@ -1,54 +1,44 @@
-name: Build AArch64 Only Docker Image
+name: Build Arm64 Stable
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 env:
   DOCKER_IMAGE: 400996/go-music-dl
+  IMAGE_TAG: latest
   TZ: Asia/Shanghai
 
 jobs:
   build_arm64:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source code
+      - name: 拉取源码
         uses: actions/checkout@v4
 
-      - name: Setup QEMU for arm64
+      - name: 安装ARM64编译环境
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Setup Docker Buildx
+      - name: 初始化buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Generate git short sha
-        id: get_tag
-        run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "SHA_TAG=sha-${SHORT_SHA}" >> $GITHUB_ENV
-
-      # 同时打两个标签 latest + sha
-      - name: Build arm64 image local
-        run: |
-          set -ex
-          docker buildx build \
-            --platform linux/arm64 \
-            --load \
-            -t ${DOCKER_IMAGE}:latest \
-            -t ${DOCKER_IMAGE}:${{ env.SHA_TAG }} \
-            --build-arg BUILD_TARGET=arm64 \
-            .
-
-      - name: Login to DockerHub
+      - name: 登录DockerHub
         env:
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
 
-      # 一次性推送两个标签
-      - name: Push docker image
+      - name: 构建纯净ARM64镜像
         run: |
-          docker push ${DOCKER_IMAGE}:latest
-          docker push ${DOCKER_IMAGE}:${{ env.SHA_TAG }}
+          set -ex
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
+            --build-arg BUILD_TARGET=arm64 \
+            .
+
+      - name: 完整推送全新镜像覆盖latest
+        run: docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
