@@ -2,9 +2,7 @@ name: Build AArch64 Only Docker Image
 on:
   push:
     branches: [ main ]
-    # 推送tag时也触发（可选）
-    tags: [ 'sha-*' ]
-  workflow_dispatch: # 支持手动点击构建
+  workflow_dispatch: # 支持手动触发构建
 
 env:
   DOCKER_REGISTRY: docker.io
@@ -18,45 +16,41 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Set up QEMU multiarch support
+      - name: Set up QEMU arm64 编译支持
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Setup Docker Buildx
+      - name: 初始化 Buildx 构建器
         uses: docker/setup-buildx-action@v3
-        # 关键：单架构构建，关闭多平台缓存冲突
         with:
           driver-opts: network=host
 
-      - name: Login DockerHub
+      - name: 登录 DockerHub
         uses: docker/login-action@v3
         with:
           registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Generate short git commit tag
+      - name: 生成 Git SHA 镜像标签
         id: meta
         run: |
           echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "TAG_SHA=sha-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "IMAGE_TAG=sha-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Build & Push ONLY aarch64
+      - name: 仅构建并推送 linux/arm64 镜像
         uses: docker/build-push-action@v6
         with:
           context: .
-          # 仅构建 arm64/aarch64，彻底规避amd64分层冲突
+          # 仅单架构 aarch64，杜绝多架构分层冲突
           platforms: linux/arm64
           push: true
-          tags: |
-            ${{ env.DOCKER_REPO }}:${{ env.TAG_SHA }}
+          tags: ${{ env.DOCKER_REPO }}:${{ env.IMAGE_TAG }}
+          # 独立架构缓存，避免脏分层
           cache-from: type=registry,ref=${{ env.DOCKER_REPO }}:buildcache-arm64
           cache-to: type=registry,ref=${{ env.DOCKER_REPO }}:buildcache-arm64,mode=max
-          # 关闭内容信任校验，避免网络传输哈希篡改误报
-          build-args: |
-            BUILD_TARGET=arm64
-          config: |
-            [registry]
-              ["docker.io"]
-              disable-content-trust = true
+          build-args: BUILD_TARGET=arm64
+          network: host
+          # 关闭自动生成provenance，减少额外分层，进一步规避sha校验异常
+          provenance: false
