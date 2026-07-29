@@ -1,44 +1,52 @@
 name: Build AArch64 Docker Push DockerHub
+# 触发规则：main分支推送、tag版本推送、手动执行
 on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-  workflow_dispatch:
+  workflow_dispatch: # 页面手动运行按钮
 
 env:
   DOCKER_HUB_USER: 400996
   DOCKER_HUB_REPO: go-music-dl
-  DOCKER_PLATFORM: linux/arm64
+  DOCKER_PLATFORM: linux/arm64 # 仅构建aarch64/arm64
 
 jobs:
   build-arm64:
     runs-on: ubuntu-latest
     steps:
+      # 拉取项目源码
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # 安装QEMU，支持跨架构编译arm64
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v4
 
+      # 初始化buildx构建工具
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # 登录Docker Hub
       - name: Login Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 自动生成镜像标签
       - name: Generate image tags
         id: meta
         run: |
           TAGS="${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:latest"
+          # 推送版本tag时，追加vxxx标签
           if [[ $GITHUB_REF == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             TAGS+=",${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:v$VERSION"
           fi
           echo "TAGS=$TAGS" >> $GITHUB_ENV
 
+      # 构建并推送镜像（已移除所有缓存配置，不再生成buildcache）
       - name: Build & Push AArch64 Only
         uses: docker/build-push-action@v7
         with:
@@ -46,5 +54,4 @@ jobs:
           platforms: ${{ env.DOCKER_PLATFORM }}
           push: true
           tags: ${{ env.TAGS }}
-          cache-from: type=registry,ref=${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:latest
-          cache-to: type=registry,ref=${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:buildcache,mode=max
+          # 彻底移除 cache-from / cache-to 两行，无缓存镜像产出
