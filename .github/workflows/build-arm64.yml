@@ -1,8 +1,8 @@
-name: Build AArch64 Only Docker Image
+name: Build Arm64 Only
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 env:
   DOCKER_IMAGE: 400996/go-music-dl
@@ -16,32 +16,43 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Setup QEMU for arm64
+      # =====新增：构建镜像前自动删除 sakana-widget 子模块=====
+      - name: Remove sakana-widget submodule before build
+        run: |
+          # 反初始化子模块
+          git submodule deinit -f sakana-widget || true
+          # 删除文件夹
+          rm -rf sakana-widget
+          # 删除git子模块缓存
+          rm -rf .git/modules/sakana-widget
+          # 清除.gitmodules配置
+          git config -f .gitmodules --remove-section submodule.sakana-widget || true
+          # 仅在构建机器删除，不提交回远程仓库（不改动GitHub源码）
+      # =====================================================
+
+      - name: Setup QEMU Arm64
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Setup Docker Buildx
+      - name: Init Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 构建arm64镜像载入本地，tag固定latest
-      - name: Build arm64 image local
-        run: |
-          set -ex
-          docker buildx build \
-            --platform linux/arm64 \
-            --load \
-            -t ${DOCKER_IMAGE}:${{ env.IMAGE_TAG }} \
-            --build-arg BUILD_TARGET=arm64 \
-            .
-
-      # 登录DockerHub
-      - name: Login to DockerHub
+      - name: DockerHub Login
         env:
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
 
-      # 推送 latest 标签镜像
-      - name: Push docker image
-        run: docker push ${DOCKER_IMAGE}:${{ env.IMAGE_TAG }}
+      - name: Build & Load Local Arm64 Image
+        run: |
+          set -ex
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
+            --build-arg BUILD_TARGET=arm64 \
+            .
+
+      - name: Push Clean Image
+        run: docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
