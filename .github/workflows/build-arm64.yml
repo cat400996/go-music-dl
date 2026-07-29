@@ -1,4 +1,4 @@
-name: Build Arm64 Only
+name: Build Arm64 Clean No Sakana
 on:
   workflow_dispatch:
   push:
@@ -13,38 +13,33 @@ jobs:
   build_arm64:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source code
+      - name: 拉取源码
         uses: actions/checkout@v4
 
-      # =====新增：构建镜像前自动删除 sakana-widget 子模块=====
-      - name: Remove sakana-widget submodule before build
+      # 构建前临时删除sakana-widget子模块（仅打包环境生效，不提交回仓库）
+      - name: 移除sakana-widget
         run: |
-          # 反初始化子模块
           git submodule deinit -f sakana-widget || true
-          # 删除文件夹
           rm -rf sakana-widget
-          # 删除git子模块缓存
           rm -rf .git/modules/sakana-widget
-          # 清除.gitmodules配置
           git config -f .gitmodules --remove-section submodule.sakana-widget || true
-          # 仅在构建机器删除，不提交回远程仓库（不改动GitHub源码）
-      # =====================================================
 
-      - name: Setup QEMU Arm64
+      - name: 安装ARM64编译环境
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Init Buildx
+      - name: 初始化buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: DockerHub Login
+      - name: 登录DockerHub
         env:
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
 
-      - name: Build & Load Local Arm64 Image
+      # 完整构建arm64镜像载入本地，规避远程推送分层损坏
+      - name: 构建纯净ARM64镜像
         run: |
           set -ex
           docker buildx build \
@@ -54,5 +49,6 @@ jobs:
             --build-arg BUILD_TARGET=arm64 \
             .
 
-      - name: Push Clean Image
+      # 本地完整镜像再推送，避免分层断裂
+      - name: 推送完整镜像覆盖损坏latest
         run: docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
