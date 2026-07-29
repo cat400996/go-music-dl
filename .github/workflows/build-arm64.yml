@@ -1,54 +1,54 @@
-name: Build Arm64 Clean No Sakana
+name: Build AArch64 Only Docker Image
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
   DOCKER_IMAGE: 400996/go-music-dl
-  IMAGE_TAG: latest
   TZ: Asia/Shanghai
 
 jobs:
   build_arm64:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取源码
+      - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 构建前临时删除sakana-widget子模块（仅打包环境生效，不提交回仓库）
-      - name: 移除sakana-widget
-        run: |
-          git submodule deinit -f sakana-widget || true
-          rm -rf sakana-widget
-          rm -rf .git/modules/sakana-widget
-          git config -f .gitmodules --remove-section submodule.sakana-widget || true
-
-      - name: 安装ARM64编译环境
+      - name: Setup QEMU for arm64
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: 初始化buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 登录DockerHub
-        env:
-          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
+      - name: Generate git short sha
+        id: get_tag
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "SHA_TAG=sha-${SHORT_SHA}" >> $GITHUB_ENV
 
-      # 完整构建arm64镜像载入本地，规避远程推送分层损坏
-      - name: 构建纯净ARM64镜像
+      # 同时打两个标签 latest + sha
+      - name: Build arm64 image local
         run: |
           set -ex
           docker buildx build \
             --platform linux/arm64 \
             --load \
-            -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
+            -t ${DOCKER_IMAGE}:latest \
+            -t ${DOCKER_IMAGE}:${{ env.SHA_TAG }} \
             --build-arg BUILD_TARGET=arm64 \
             .
 
-      # 本地完整镜像再推送，避免分层断裂
-      - name: 推送完整镜像覆盖损坏latest
-        run: docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
+      - name: Login to DockerHub
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+      # 一次性推送两个标签
+      - name: Push docker image
+        run: |
+          docker push ${DOCKER_IMAGE}:latest
+          docker push ${DOCKER_IMAGE}:${{ env.SHA_TAG }}
