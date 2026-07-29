@@ -1,47 +1,56 @@
-name: Build Arm64 Only
+name: Build AArch64 Only Docker Image
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [ main ]
+  workflow_dispatch: # 支持手动一键构建
 
 env:
-  IMAGE_NAME: cat400996/go-music-dl
+  DOCKER_IMAGE: 400996/go-music-dl
+  TZ: Asia/Shanghai
 
 jobs:
-  build:
+  build_arm64:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source Code
+      # 拉取源码
+      - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: QEMU Arm64 Cross Compile
+      # 开启arm64跨平台编译环境
+      - name: Setup QEMU for arm64
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Init Buildx
+      # 初始化buildx构建器
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Generate Git SHA Tag
-        run: echo "TAG=sha-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      # 关键：只构建不推送，镜像载入本地runner
-      - name: Build Image Load Local
+      # 生成git短sha镜像标签 sha-xxxxxxx
+      - name: Generate image tag from git commit
+        id: get_tag
         run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "TAG=sha-${SHORT_SHA}" >> $GITHUB_ENV
+
+      # 仅构建arm64镜像，载入本地运行机，不远程推送
+      - name: Build arm64 image local
+        run: |
+          set -ex
           docker buildx build \
             --platform linux/arm64 \
             --load \
-            -t ${IMAGE_NAME}:${TAG} \
+            -t ${DOCKER_IMAGE}:${{ env.TAG }} \
             --build-arg BUILD_TARGET=arm64 \
             .
 
       # 登录DockerHub
-      - name: DockerHub Login
+      - name: Login to DockerHub
         env:
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
 
-      # 原生docker push，绕过buildx内置推送鉴权bug
-      - name: Native Docker Push
-        run: docker push ${IMAGE_NAME}:${TAG}
+      # 原生docker推送，避开buildx内置推送权限bug
+      - name: Push docker image
+        run: docker push ${DOCKER_IMAGE}:${{ env.TAG }}
