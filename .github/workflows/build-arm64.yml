@@ -1,59 +1,43 @@
-name: Build AArch64 Only Docker Image
+name: Build Arm64 Only
 on:
-  push:
-    branches: [ main ]
-  # 手动一键触发构建
   workflow_dispatch:
+  push:
+    branches: [main]
 
 env:
-  DOCKER_IMAGE: cat400996/go-music-dl
-  TZ: Asia/Shanghai
+  IMAGE_NAME: cat400996/go-music-dl
 
 jobs:
-  build_arm64:
+  build:
     runs-on: ubuntu-latest
     steps:
-      # 拉取源码
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 开启arm64跨平台编译
-      - name: Setup QEMU for arm64
+      - name: QEMU Arm64
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      # 初始化buildx构建器
-      - name: Setup Docker Buildx
+      - name: Buildx Init
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: network=host
 
-      # 登录DockerHub
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # 标准DockerHub登录，无多余参数
+      - name: Docker Login
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
 
-      # 生成git短sha镜像标签 sha-xxxxxxx
-      - name: Generate image tag from git commit
-        id: get_tag
+      # 生成标签
+      - name: Get Git SHA Tag
+        run: echo "TAG=sha-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      # 纯arm64构建推送，移除所有缓存、provenance、sbom等额外参数
+      - name: Build Push
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "TAG=sha-${SHORT_SHA}" >> $GITHUB_ENV
-
-      # 仅构建并推送 linux/arm64 镜像
-      - name: Build & Push arm64 Docker Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          # 只打包aarch64单一架构，杜绝分层哈希冲突
-          platforms: linux/arm64
-          push: true
-          tags: ${{ env.DOCKER_IMAGE }}:${{ env.TAG }}
-          build-args: BUILD_TARGET=arm64
-          network: host
-          # 关闭凭证生成，减少多余layer，避免拉取时sha校验失败
-          provenance: false
-          sbom: false
+          docker buildx build \
+            --platform linux/arm64 \
+            --push \
+            -t ${IMAGE_NAME}:${TAG} \
+            --build-arg BUILD_TARGET=arm64 \
+            .
