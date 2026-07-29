@@ -5,36 +5,43 @@ on:
     branches: [main]
 
 env:
-  IMAGE: cat400996/go-music-dl
+  IMAGE_NAME: cat400996/go-music-dl
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
-      - name: QEMU Arm64
+      - name: QEMU Arm64 Cross Compile
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Buildx Init
+      - name: Init Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login DockerHub
-        env:
-          U: ${{ secrets.DOCKERHUB_USERNAME }}
-          P: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: echo "$P" | docker login -u "$U" --password-stdin
-
-      - name: Get SHA Tag
+      - name: Generate Git SHA Tag
         run: echo "TAG=sha-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Build Push
+      # 关键：只构建不推送，镜像载入本地runner
+      - name: Build Image Load Local
         run: |
           docker buildx build \
             --platform linux/arm64 \
-            --push \
-            -t ${IMAGE}:${TAG} \
+            --load \
+            -t ${IMAGE_NAME}:${TAG} \
             --build-arg BUILD_TARGET=arm64 \
             .
+
+      # 登录DockerHub
+      - name: DockerHub Login
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PWD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "${DOCKER_PWD}" | docker login -u "${DOCKER_USER}" --password-stdin
+
+      # 原生docker push，绕过buildx内置推送鉴权bug
+      - name: Native Docker Push
+        run: docker push ${IMAGE_NAME}:${TAG}
