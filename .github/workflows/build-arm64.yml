@@ -1,58 +1,50 @@
 name: Build AArch64 Docker Push DockerHub
-# 触发规则：main分支推送、tag版本推送、手动执行
 on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-  workflow_dispatch: # 手动触发按钮
+  workflow_dispatch:
 
 env:
-  # ========== 修改这里为你自己的Docker Hub信息 ==========
-  DOCKER_HUB_USER: cat400996
+  DOCKER_HUB_USER: 400996
   DOCKER_HUB_REPO: go-music-dl
-  DOCKER_PLATFORM: linux/arm64 # 固定仅aarch64
+  DOCKER_PLATFORM: linux/arm64
+
 jobs:
   build-arm64:
     runs-on: ubuntu-latest
     steps:
-      # 1. 拉取代码
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # 2. QEMU模拟跨架构（amd64 runner编译arm64必备）
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v4
 
-      # 3. 初始化buildx构建工具
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # 4. 登录Docker Hub（读取仓库Secrets）
       - name: Login Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 5. 生成镜像标签（latest + tag版本双标签）
       - name: Generate image tags
         id: meta
         run: |
           TAGS="${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:latest"
-          # 如果是tag推送，追加版本标签
           if [[ $GITHUB_REF == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             TAGS+=",${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:v$VERSION"
           fi
           echo "TAGS=$TAGS" >> $GITHUB_ENV
 
-      # 6. 构建并推送仅aarch64镜像到Docker Hub
-      - name: Build & Push AArch64 Image
+      - name: Build & Push AArch64 Only
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: ${{ env.DOCKER_PLATFORM }} # 仅arm64/aarch64
-          push: true # 构建完成直接上传Docker Hub
+          platforms: ${{ env.DOCKER_PLATFORM }}
+          push: true
           tags: ${{ env.TAGS }}
           cache-from: type=registry,ref=${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:latest
           cache-to: type=registry,ref=${{ env.DOCKER_HUB_USER }}/${{ env.DOCKER_HUB_REPO }}:buildcache,mode=max
